@@ -66,8 +66,18 @@ discovered — a `-` just means nothing's been found yet (or the AP doesn't
 have WPS enabled).
 
 Stop the scan when ready and pick targets with a comma-separated list or
-`all`. Each target then runs through WPS, PMKID, and handshake capture,
-after which everything gets cracked against the configured wordlist.
+`all`. Each target then runs through WPS, PMKID, and handshake capture.
+After each round, you're asked what's next:
+
+```
+(m)ore targets from this scan, (r)escan, (c)rack captured & quit, (q)uit without cracking
+```
+
+`m` returns to the target list without rescanning, so you can pick more
+networks — or re-select one you already tried, which retries it even if
+it already has a saved result. `r` runs a fresh scan first. Either way,
+nothing requires restarting wardog: you can keep attacking, retrying, and
+picking new targets in one continuous run.
 
 Captured handshakes, PMKIDs, and recovered WPS passwords are written to
 `~/.local/share/wardog/captures/`. Override the wordlist/rules file used

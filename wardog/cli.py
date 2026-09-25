@@ -474,19 +474,22 @@ def try_wps_pixiedust(ssid, bssid, channel, safe_ssid, bssid_fs):
     return True
 
 
-def capture_target(ssid, bssid, channel):
+def capture_target(ssid, bssid, channel, force=False):
     safe_ssid = sanitize(ssid) or "hidden"
     bssid_fs = bssid.replace(":", "-")
     prefix = OUT_DIR / f"{safe_ssid}_{bssid_fs}"
     hc_file = Path(f"{prefix}.hc22000")
     wps_file = OUT_DIR / f"{safe_ssid}_{bssid_fs}.wps_password.txt"
 
-    if hc_file.exists():
+    if not force and hc_file.exists():
         print(f"[+] {ssid} already has a saved handshake, skipping.")
         return
-    if wps_file.exists():
+    if not force and wps_file.exists():
         print(f"[+] {ssid} already has a saved WPS password, skipping.")
         return
+    if force and (hc_file.exists() or wps_file.exists()):
+        print(f"[*] Re-attacking {ssid} despite an existing saved result "
+              f"(only overwritten if this attempt succeeds).")
 
     print("=" * 47)
     print(f"[*] Target: {ssid} ({bssid}) channel {channel}")
@@ -553,7 +556,7 @@ def capture_target(ssid, bssid, channel):
         if action == "retry":
             kill_all_airodump()
             print(f"[*] Retrying {ssid}...")
-            return capture_target(ssid, bssid, channel)
+            return capture_target(ssid, bssid, channel, force=force)
         if action == "crack":
             kill_all_airodump()
             crack_all()
@@ -620,7 +623,9 @@ def run_wardrive():
         crack_all()
 
 
-def run_interactive():
+def scan_until_networks_found():
+    """Runs do_scan_live() until it returns at least one network (or the
+    user gives up with Ctrl+C at the "scan again?" prompt)."""
     while True:
         csv_path = do_scan_live()
         if not csv_path:
@@ -628,36 +633,63 @@ def run_interactive():
             sys.exit(1)
 
         aps = parse_aps(csv_path)
-        if not aps:
-            print("[!] No networks found. Press Ctrl+C to quit, or Enter to scan again.")
-            try:
-                input()
-            except KeyboardInterrupt:
-                print()
-                sys.exit(130)
-            continue
-        break
+        if aps:
+            return aps
 
+        print("[!] No networks found. Press Ctrl+C to quit, or Enter to scan again.")
+        try:
+            input()
+        except KeyboardInterrupt:
+            print()
+            sys.exit(130)
+
+
+def run_interactive():
     # The live scan table is already on screen from do_scan_live()'s last
-    # redraw; no need to print it again here.
-    print()
-    try:
-        selection = input("Select target(s) (e.g. 1,3,4 or 'all'): ").strip()
-    except KeyboardInterrupt:
+    # redraw the first time through; only reprint it on later rounds (after
+    # attacking) or after an explicit rescan.
+    aps = scan_until_networks_found()
+
+    while True:
         print()
-        sys.exit(130)
+        try:
+            selection = input("Select target(s) (e.g. 1,3,4 or 'all'): ").strip()
+        except KeyboardInterrupt:
+            print()
+            return
 
-    if selection == "all":
-        indices = list(range(1, len(aps) + 1))
-    else:
-        indices = [int(p) for p in selection.split(",") if p.strip().isdigit()]
+        if selection == "all":
+            indices = list(range(1, len(aps) + 1))
+        else:
+            indices = [int(p) for p in selection.split(",") if p.strip().isdigit()]
 
-    for idx in indices:
-        if 1 <= idx <= len(aps):
-            ap = aps[idx - 1]
-            capture_target(ap["essid"], ap["bssid"], ap["channel"])
+        for idx in indices:
+            if 1 <= idx <= len(aps):
+                ap = aps[idx - 1]
+                # Manual re-selection from the menu is an explicit retry
+                # request, so it overrides the "already captured" skip.
+                capture_target(ap["essid"], ap["bssid"], ap["channel"], force=True)
 
-    crack_all()
+        print()
+        try:
+            action = input("(m)ore targets from this scan, (r)escan, (c)rack captured & quit, "
+                            "(q)uit without cracking: ").strip().lower()
+        except KeyboardInterrupt:
+            print()
+            action = "c"
+
+        if action == "q":
+            return
+        if action == "r":
+            aps = scan_until_networks_found()
+            continue
+        if action == "m":
+            print()
+            print_ap_table(aps)
+            continue
+        # "c", empty input, or anything else: crack what's captured and exit.
+        crack_all()
+        return
 
 
 # ------------------------------------------------------------------- main
