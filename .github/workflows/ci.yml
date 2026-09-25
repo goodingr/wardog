@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install wardog
+        run: pip install .
+
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check wardog/
+
+      # No wireless hardware in CI, so this only exercises the
+      # argument-parsing / packaging surface, not the capture pipeline.
+      - name: Smoke test CLI
+        run: |
+          wardog --version
+          wardog --help

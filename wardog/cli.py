@@ -133,9 +133,9 @@ def eapol_progress(cap_path, bssid, client_mac):
     {1,2,3,4}) seen so far between bssid and client_mac, by inspecting
     each EAPOL-Key frame's key info bits directly (no crypto check —
     that's what has_handshake()/aircrack-ng is for)."""
-    from scapy.utils import PcapReader
     from scapy.layers.dot11 import Dot11
     from scapy.layers.eap import EAPOL
+    from scapy.utils import PcapReader
 
     bssid_l, client_l = bssid.lower(), client_mac.lower()
     messages = set()
@@ -354,7 +354,7 @@ def try_pmkid(ssid, bssid, prefix, hc_file):
         return False
 
     lines = hc_tmp.read_text(errors="replace").splitlines()
-    pmkid_lines = [l for l in lines if l.startswith("WPA*01*")]
+    pmkid_lines = [line for line in lines if line.startswith("WPA*01*")]
     hc_tmp.unlink(missing_ok=True)
     if not pmkid_lines:
         return False

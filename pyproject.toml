@@ -33,3 +33,14 @@ wardog = "wardog.cli:run"
 
 [tool.setuptools.packages.find]
 include = ["wardog*"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+# Pragmatic set for a sysadmin-style CLI: real bugs (pyflakes), style
+# (pycodestyle), import hygiene, and modernization — not pylint/bandit's
+# opinions about broad excepts or unchecked subprocess.run, which are
+# deliberate here (external tools and hardware fail in ways we want to
+# absorb and report, not crash on).
+select = ["E", "F", "W", "I", "UP"]
