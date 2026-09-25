@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wardog"
+version = "0.1.0"
+description = "Automated WPA handshake / PMKID / WPS capture pipeline for authorized wireless security testing"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "Rob Gooding" }]
+keywords = ["wifi", "wireless", "security", "pentest", "wpa", "handshake", "aircrack-ng"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = [
+    "scapy>=2.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/goodingr/wardog"
+Issues = "https://github.com/goodingr/wardog/issues"
+
+[project.scripts]
+wardog = "wardog.cli:run"
+
+[tool.setuptools.packages.find]
+include = ["wardog*"]

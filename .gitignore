@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+captures/
+*.cap
+*.csv
+*.hc22000
+*.wps_password.txt
