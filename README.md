@@ -1,34 +1,35 @@
 # wardog
 
-An automated WPA handshake / PMKID / WPS capture pipeline for **authorized**
-wireless security testing — essentially a wifite-style tool, built from
-scratch to actually work reliably: real Ctrl+C handling, a live-updating
-scan table, and honest reporting of what each attack actually achieved.
+An automated wireless auditing tool for **authorized** WPA/WPA2 security
+testing: scans for nearby networks, then for each target attempts WPS
+pixie-dust, PMKID capture, and full 4-way handshake capture (in that order),
+and finally runs the results against a wordlist with hashcat.
 
 > **Authorized use only.** Only point this at networks you own or have
 > explicit written permission to test. Deauthenticating clients and
 > attacking WPA/WPS on networks you don't control is illegal in most
 > jurisdictions.
 
-## What it does
+## Features
 
-For each target, in order:
-
-1. **WPS pixie-dust** (via `reaver`) — if the AP has WPS enabled, this can
-   recover the actual WPA password directly, no capture or cracking needed.
-2. **PMKID capture** — a fast, client-free, deauth-free attempt that elicits
-   the AP's PMKID from a single fake association. Cheap to try, doesn't
-   always succeed (see [Notes on reliability](#notes-on-reliability)).
-3. **Handshake capture** — finds real connected clients and deauths them in
-   rounds until a valid 4-way handshake is captured, printing live progress
-   (`M1 M2 (2/4)`) as partial EAPOL messages come in.
-
-Once you're done selecting targets, it cracks everything it captured against
-a wordlist with hashcat.
-
-Ctrl+C stops whatever is currently happening — the scan, or the attack on
-the current target — and asks what to do next, instead of killing the whole
-program.
+- **Interactive scan mode**: a live-updating table of nearby networks
+  (signal strength, channel, encryption, hidden SSIDs included) that you
+  stop when ready and pick targets from.
+- **Layered attack per target**:
+  1. **WPS pixie-dust** (`reaver`) — recovers the actual WPA password
+     directly when the AP has WPS enabled, skipping capture and cracking.
+  2. **PMKID capture** — a fast, client-free attempt that doesn't require
+     deauthenticating anyone.
+  3. **Handshake capture** — deauths connected clients in rounds until a
+     valid 4-way handshake is captured, with live progress as each EAPOL
+     message (`M1 M2 (2/4)`) comes in.
+- **Automated cracking**: runs hashcat against everything captured once
+  you're done selecting targets.
+- **Wardrive mode** (`--auto`): unattended, continuously scans and attacks
+  every WPA network it finds.
+- **Auto-configured adapters**: detects monitor-mode-capable wireless
+  interfaces and switches them into monitor mode itself — no manual
+  `airmon-ng` steps.
 
 ## Install
 
@@ -39,23 +40,20 @@ cd wardog
 pipx install .
 ```
 
-(`pipx` is recommended so `wardog`'s Python dependencies stay isolated from
+(`pipx` is recommended so wardog's Python dependencies stay isolated from
 the rest of your system; `pip install --user .` works too.)
 
-Requires a wireless adapter that supports monitor mode. `wardog` auto-detects
-and configures your adapter(s) at startup — no manual `airmon-ng` dance
-needed.
+Requires a wireless adapter that supports monitor mode.
 
 ## Usage
 
 ```bash
-wardog                # interactive: scan until Ctrl+C, then pick targets
-wardog --auto         # wardrive mode: no prompts, attacks every WPA network it sees
+wardog                # interactive mode: scan, then pick targets
+wardog --auto         # wardrive mode: scans and attacks every WPA network it finds
 wardog --help
 ```
 
-In interactive mode, `wardog` scans continuously and shows a live table of
-networks (press Ctrl+C when ready):
+Interactive mode shows a live table of networks as it scans:
 
 ```
   #   PWR   CH   ENC        ESSID                          BSSID
@@ -63,38 +61,29 @@ networks (press Ctrl+C when ready):
   2   -73   6    WPA2       <hidden>                       A4:6B:1F:97:30:88
 ```
 
-Pick targets with a comma-separated list or `all`. While attacking a target,
-Ctrl+C stops that attack and offers:
-
-```
-(s)kip to next target, (r)etry, (c)rack now & exit, (e)xit without cracking
-```
+Stop the scan when ready and pick targets with a comma-separated list or
+`all`. Each target then runs through WPS, PMKID, and handshake capture,
+after which everything gets cracked against the configured wordlist.
 
 Captured handshakes, PMKIDs, and recovered WPS passwords are written to
-`~/.local/share/wardog/captures/` (override the wordlist/rules used for
-cracking with `--wordlist`/`--rules`).
+`~/.local/share/wardog/captures/`. Override the wordlist/rules file used
+for cracking with `--wordlist`/`--rules`.
 
-`--auto` runs unattended: continuously scans and attacks every WPA network
-it finds, with no prompts. **Only use this where you've confirmed there are
-no neighboring networks you don't own** — it will attack whatever it sees.
+`--auto` (wardrive mode) attacks every WPA network it sees, unattended.
+**Only use this where you've confirmed there are no neighboring networks
+you don't own.**
 
-## Notes on reliability
+## Known limitations
 
-This was built and tested against real hardware, and a couple of honest
-limitations are baked into the behavior rather than papered over:
-
-- **PMKID capture** uses `aireplay-ng --fakeauth` rather than the more
-  purpose-built `hcxdumptool`, because `hcxdumptool` captures zero packets
-  on some older/limited monitor-mode drivers (confirmed on RTL8188EU/
-  `rtl8xxxu`). `aireplay-ng`'s plain fake-authentication is open-system only,
-  so many modern APs reject the association outright (`Association denied
-  (code 40)`) without ever sending a PMKID-bearing frame. When that happens,
-  wardog just falls through to full handshake capture — this is expected,
-  not a bug.
-- Effectiveness of deauth-based capture depends heavily on your adapter's
-  injection support. Cheap/embedded chipsets (again, RTL8188EU) can be
-  flaky under sustained monitor-mode + injection use; a well-supported
-  adapter (e.g. an Atheros- or RT3070-based one) will be far more reliable.
+- **PMKID capture** uses `aireplay-ng`'s fake-authentication rather than
+  `hcxdumptool`, for broader adapter compatibility. Because it's an
+  open-system association rather than a full WPA handshake, many APs
+  reject it outright and no PMKID is returned — wardog falls through to
+  handshake capture in that case.
+- **Deauth-based capture** depends on your adapter's packet injection
+  support. Budget/embedded chipsets can be unreliable under sustained
+  monitor-mode use; a well-supported adapter (e.g. Atheros- or
+  RT3070-based) will perform significantly better.
 
 ## Requirements
 
