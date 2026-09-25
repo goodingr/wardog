@@ -85,24 +85,32 @@ def bg_root(cmd):
                              start_new_session=True)
 
 
-def kill_all_airodump():
-    """Kill every airodump-ng process outright, matching by name rather
-    than PID: `sudo cmd` gives us sudo's PID, not the actual airodump-ng
+def kill_by_pattern(pattern):
+    """Kill every process matching `pattern` outright, matching by name
+    rather than PID: `sudo cmd` gives us sudo's PID, not the actual
     child's, and signalling sudo doesn't reliably forward to it.
 
-    Polls quickly (airodump-ng normally dies within a fraction of a second
+    Polls quickly (these tools normally die within a fraction of a second
     of SIGINT) so this doesn't add a noticeable delay after Ctrl+C; only
     falls back to SIGKILL and a longer wait if it's actually stuck."""
-    run_root(["pkill", "-INT", "-f", "airodump-ng"])
+    run_root(["pkill", "-INT", "-f", pattern])
     deadline = time.time() + 2
     while time.time() < deadline:
-        r = subprocess.run(["pgrep", "-f", "airodump-ng"],
+        r = subprocess.run(["pgrep", "-f", pattern],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if r.returncode != 0:
             return
         time.sleep(0.1)
-    run_root(["pkill", "-9", "-f", "airodump-ng"])
+    run_root(["pkill", "-9", "-f", pattern])
     time.sleep(0.3)
+
+
+def kill_all_airodump():
+    kill_by_pattern("airodump-ng")
+
+
+def kill_all_wash():
+    kill_by_pattern("wash -i")
 
 
 def latest_file(prefix, suffix_glob):
@@ -265,32 +273,53 @@ def render_scan_table(aps):
 
 
 def print_ap_table(aps):
-    print(f"  {'#':<4}{'PWR':<6}{'CH':<5}{'ENC':<11}{'ESSID':<31}{'BSSID'}")
+    print(f"  {'#':<4}{'PWR':<6}{'CH':<5}{'ENC':<11}{'WPS':<6}{'LCK':<5}{'ESSID':<31}{'BSSID'}")
     for i, ap in enumerate(aps, 1):
         pwr = ap.get("power") or "?"
-        print(f"  {i:<4}{pwr:<6}{ap['channel']:<5}{ap['enc']:<11}{ap['essid'][:30]:<31}{ap['bssid']}")
+        wps = ap.get("wps") or "-"
+        lck = {True: "Yes", False: "No"}.get(ap.get("locked"), "-")
+        print(f"  {i:<4}{pwr:<6}{ap['channel']:<5}{ap['enc']:<11}{wps:<6}{lck:<5}"
+              f"{ap['essid'][:30]:<31}{ap['bssid']}")
 
 
 def do_scan_live():
     """Interactive mode: scan until the user presses Ctrl+C, redrawing our
     own wifite-style live table from the CSV every second. airodump-ng's
     own output is kept off the terminal entirely (stdin/stdout/stderr all
-    detached) so it never touches our tty."""
+    detached) so it never touches our tty.
+
+    WPS/lock status comes from a concurrent `wash` scan. When a second
+    adapter is available it runs there, with no channel-hopping contention
+    against airodump-ng. On a single adapter it shares CAP_IFACE with
+    airodump-ng instead — still worth running, but the two tools fighting
+    over the radio's channel means WPS results will be slower and less
+    complete than a dedicated per-target check gets (see try_wps_pixiedust)."""
     scan_prefix = SCRATCH / "scan"
+    wps_iface = DEAUTH_IFACE if DEAUTH_IFACE != CAP_IFACE else CAP_IFACE
+    wash_proc = wash_log = wash_file = None
     try:
         kill_all_airodump()
+        kill_all_wash()
         clear_scratch()
         bg_root(["airodump-ng", "-w", str(scan_prefix), "--output-format", "csv", CAP_IFACE])
+        wash_proc, wash_log, wash_file = start_wps_scan(wps_iface)
         time.sleep(2)
 
         while True:
             csv_path = latest_file(scan_prefix, "-*.csv")
-            render_scan_table(parse_aps(csv_path) if csv_path else [])
+            aps = parse_aps(csv_path) if csv_path else []
+            wps_info = read_wps_scan(wash_log)
+            for ap in aps:
+                ap.update(wps_info.get(ap["bssid"].upper(), {}))
+            render_scan_table(aps)
             time.sleep(1)
     except KeyboardInterrupt:
         pass
 
     kill_all_airodump()
+    kill_all_wash()
+    if wash_file:
+        wash_file.close()
     return latest_file(scan_prefix, "-*.csv")
 
 
@@ -362,6 +391,41 @@ def try_pmkid(ssid, bssid, prefix, hc_file):
     hc_file.write_text("\n".join(pmkid_lines) + "\n")
     print(f"[+] PMKID captured for {ssid}! Saved {hc_file}")
     return True
+
+
+WASH_ROW_RE = re.compile(r"^([0-9A-Fa-f:]{17})\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+")
+
+
+def parse_wash_output(text):
+    """Parses wash's scan-mode table into {BSSID: {'wps': version, 'locked': bool}}."""
+    info = {}
+    for line in text.splitlines():
+        m = WASH_ROW_RE.match(line)
+        if not m:
+            continue
+        bssid, _ch, _dbm, wps_ver, locked = m.groups()
+        info[bssid.upper()] = {"wps": wps_ver, "locked": locked.strip().lower().startswith("y")}
+    return info
+
+
+def start_wps_scan(iface):
+    """Launches `wash -s` in the background, logging to a file we can poll
+    (wash has no equivalent of airodump-ng's periodically-rewritten CSV;
+    it just appends one line per newly-characterized WPS-enabled AP)."""
+    log_path = SCRATCH / "wash_scan.log"
+    log_path.unlink(missing_ok=True)
+    logf = open(log_path, "wb")
+    proc = subprocess.Popen(["sudo", "wash", "-i", iface, "-s"],
+                             stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+    return proc, log_path, logf
+
+
+def read_wps_scan(log_path):
+    try:
+        return parse_wash_output(log_path.read_text(errors="replace"))
+    except OSError:
+        return {}
 
 
 def wps_enabled(bssid, channel):
@@ -574,8 +638,8 @@ def run_interactive():
             continue
         break
 
-    print()
-    print_ap_table(aps)
+    # The live scan table is already on screen from do_scan_live()'s last
+    # redraw; no need to print it again here.
     print()
     try:
         selection = input("Select target(s) (e.g. 1,3,4 or 'all'): ").strip()

@@ -13,8 +13,8 @@ and finally runs the results against a wordlist with hashcat.
 ## Features
 
 - **Interactive scan mode**: a live-updating table of nearby networks
-  (signal strength, channel, encryption, hidden SSIDs included) that you
-  stop when ready and pick targets from.
+  (signal strength, channel, encryption, WPS version/lock status, hidden
+  SSIDs included) that you stop when ready and pick targets from.
 - **Layered attack per target**:
   1. **WPS pixie-dust** (`reaver`) — recovers the actual WPA password
      directly when the AP has WPS enabled, skipping capture and cracking.
@@ -56,10 +56,14 @@ wardog --help
 Interactive mode shows a live table of networks as it scans:
 
 ```
-  #   PWR   CH   ENC        ESSID                          BSSID
-  1   -66   1    WPA2       MyHomeNetwork                  70:A7:41:AB:D7:26
-  2   -73   6    WPA2       <hidden>                       A4:6B:1F:97:30:88
+  #   PWR   CH   ENC        WPS   LCK  ESSID                          BSSID
+  1   -66   1    WPA2       2.0   No   MyHomeNetwork                  70:A7:41:AB:D7:26
+  2   -73   6    WPA2       -     -    <hidden>                       A4:6B:1F:97:30:88
 ```
+
+WPS/lock status comes from a concurrent `wash` scan and fills in as it's
+discovered — a `-` just means nothing's been found yet (or the AP doesn't
+have WPS enabled).
 
 Stop the scan when ready and pick targets with a comma-separated list or
 `all`. Each target then runs through WPS, PMKID, and handshake capture,
@@ -84,6 +88,12 @@ you don't own.**
   support. Budget/embedded chipsets can be unreliable under sustained
   monitor-mode use; a well-supported adapter (e.g. Atheros- or
   RT3070-based) will perform significantly better.
+- **Live WPS detection during scanning** uses a second wireless adapter
+  when one is available, with no interference between it and the main
+  scan. With only one adapter, both share it, and the channel-hopping
+  contention between them means WPS results fill in slower and less
+  completely than the dedicated per-target check wardog does before
+  attacking (which isn't affected by this).
 
 ## Requirements
 
